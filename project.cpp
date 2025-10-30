@@ -6,7 +6,9 @@
 #include <utility>
 #include <cmath>
 #include <functional>
+#include <algorithm>
 #include <iomanip>
+#include <set>
 
 class Avl_Tree {
 private:
@@ -312,8 +314,40 @@ private:
         return isValid(x, y) && grid[x][y] == 0;
     }
 
-    int heuristic(int x1, int y1, int x2, int y2) const {
-        return std::abs(x1 - x2) + std::abs(y1 - y2);
+    // Проверка, является ли клетка тупиком
+    bool isDeadEnd(int x, int y) const {
+        if (grid[x][y] == 1) return false; // Стена не может быть тупиком
+
+        int passageCount = 0;
+        const int dx[4] = {-1, 0, 1, 0};
+        const int dy[4] = {0, 1, 0, -1};
+
+        for (int i = 0; i < 4; i++) {
+            int nx = x + dx[i];
+            int ny = y + dy[i];
+            if (isValid(nx, ny) && grid[nx][ny] == 0) {
+                passageCount++;
+            }
+        }
+
+        // Тупик имеет только 1 проход
+        return passageCount == 1;
+    }
+
+    // Получить количество соседей-проходов
+    int countPassageNeighbors(int x, int y) const {
+        int count = 0;
+        const int dx[4] = {-1, 0, 1, 0};
+        const int dy[4] = {0, 1, 0, -1};
+
+        for (int i = 0; i < 4; i++) {
+            int nx = x + dx[i];
+            int ny = y + dy[i];
+            if (isValid(nx, ny) && grid[nx][ny] == 0) {
+                count++;
+            }
+        }
+        return count;
     }
 
 public:
@@ -339,6 +373,134 @@ public:
         }
     }
 
+    // BRAIDING ALGORITHM - устранение тупиков
+    void braidMaze(double braidFactor = 0.5) {
+        std::cout << "\n=== APPLYING BRAIDING ALGORITHM ===" << std::endl;
+        std::cout << "Braid factor: " << braidFactor << std::endl;
+
+        std::vector<std::pair<int, int>> deadEnds;
+
+        // Находим все тупики
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                if (isDeadEnd(i, j)) {
+                    deadEnds.push_back({i, j});
+                }
+            }
+        }
+
+        std::cout << "Found " << deadEnds.size() << " dead ends" << std::endl;
+
+        // "Зашиваем" случайные тупики в соответствии с braidFactor
+        std::random_shuffle(deadEnds.begin(), deadEnds.end());
+        int braidCount = static_cast<int>(deadEnds.size() * braidFactor);
+
+        for (int i = 0; i < braidCount && i < deadEnds.size(); i++) {
+            auto [x, y] = deadEnds[i];
+            braidDeadEnd(x, y);
+        }
+
+        std::cout << "Braided " << braidCount << " dead ends" << std::endl;
+    }
+
+private:
+    // "Зашивание" конкретного тупика
+    void braidDeadEnd(int x, int y) {
+        const int dx[4] = {-1, 0, 1, 0};
+        const int dy[4] = {0, 1, 0, -1};
+
+        // Находим стену, которую можно убрать чтобы соединить с другим проходом
+        for (int i = 0; i < 4; i++) {
+            int nx = x + dx[i];
+            int ny = y + dy[i];
+
+            if (isValid(nx, ny) && grid[nx][ny] == 1) {
+                // Проверяем, не создаст ли это слишком много соединений
+                int newConnections = 0;
+                for (int j = 0; j < 4; j++) {
+                    int nnx = nx + dx[j];
+                    int nny = ny + dy[j];
+                    if (isValid(nnx, nny) && grid[nnx][nny] == 0) {
+                        newConnections++;
+                    }
+                }
+
+                // Если убирание стены создает разумное количество соединений
+                if (newConnections >= 1 && newConnections <= 2) {
+                    grid[nx][ny] = 0; // Убираем стену
+                    std::cout << "  Braided: (" << x << "," << y << ") -> (" << nx << "," << ny << ")" << std::endl;
+                    return;
+                }
+            }
+        }
+    }
+
+public:
+    // Wave Algorithm (Branding Algorithm)
+    std::vector<std::pair<int, int>> findPathWave(std::pair<int, int> start,
+                                                 std::pair<int, int> end) {
+        if (!isPassable(start.first, start.second) ||
+            !isPassable(end.first, end.second)) {
+            std::cout << "Start or end position is blocked!" << std::endl;
+            return {};
+        }
+
+        std::vector<std::vector<int>> wave(rows, std::vector<int>(cols, -1));
+        std::vector<std::vector<std::pair<int, int>>> parent(rows,
+            std::vector<std::pair<int, int>>(cols, {-1, -1}));
+
+        std::queue<std::pair<int, int>> q;
+
+        wave[start.first][start.second] = 0;
+        q.push(start);
+
+        const int dx[4] = {-1, 0, 1, 0};
+        const int dy[4] = {0, 1, 0, -1};
+
+        bool found = false;
+
+        while (!q.empty() && !found) {
+            auto [x, y] = q.front();
+            q.pop();
+
+            if (x == end.first && y == end.second) {
+                found = true;
+                break;
+            }
+
+            for (int i = 0; i < 4; i++) {
+                int nx = x + dx[i];
+                int ny = y + dy[i];
+
+                if (isPassable(nx, ny) && wave[nx][ny] == -1) {
+                    wave[nx][ny] = wave[x][y] + 1;
+                    parent[nx][ny] = {x, y};
+                    q.push({nx, ny});
+                    visitedCells.insert(coordToKey(nx, ny));
+                }
+            }
+        }
+
+        if (!found) {
+            std::cout << "No path found by wave algorithm!" << std::endl;
+            return {};
+        }
+
+        std::vector<std::pair<int, int>> path;
+        auto current = end;
+
+        while (current != start) {
+            path.push_back(current);
+            current = parent[current.first][current.second];
+        }
+        path.push_back(start);
+        std::reverse(path.begin(), path.end());
+
+        std::cout << "Wave algorithm path found! Length: " << path.size() << std::endl;
+        return path;
+    }
+
+    // BFS Algorithm
     std::vector<std::pair<int, int>> findPathBFS(std::pair<int, int> start,
                                                 std::pair<int, int> end) {
         if (!isPassable(start.first, start.second) ||
@@ -366,7 +528,7 @@ public:
             int y = current.second;
 
             if (x == end.first && y == end.second) {
-                std::cout << "Path found! Length: " << path.size() << std::endl;
+                std::cout << "BFS path found! Length: " << path.size() << std::endl;
                 return path;
             }
 
@@ -384,75 +546,17 @@ public:
             }
         }
 
-        std::cout << "No path found!" << std::endl;
+        std::cout << "No BFS path found!" << std::endl;
         return {};
     }
 
-    std::vector<std::pair<int, int>> findPathDFS(std::pair<int, int> start,
-                                                std::pair<int, int> end) {
-        if (!isPassable(start.first, start.second) ||
-            !isPassable(end.first, end.second)) {
-            return {};
-        }
-
-        visitedCells.clear();
-        std::vector<std::pair<int, int>> path;
-        std::vector<std::pair<int, int>> result;
-
-        if (dfsHelper(start, end, path, result)) {
-            std::cout << "DFS Path found! Length: " << result.size() << std::endl;
-            return result;
-        }
-
-        std::cout << "No DFS path found!" << std::endl;
-        return {};
-    }
-
-private:
-    bool dfsHelper(std::pair<int, int> current,
-                  std::pair<int, int> end,
-                  std::vector<std::pair<int, int>>& path,
-                  std::vector<std::pair<int, int>>& result) {
-        int x = current.first;
-        int y = current.second;
-        int key = coordToKey(x, y);
-
-        visitedCells.insert(key);
-        path.push_back(current);
-
-        if (x == end.first && y == end.second) {
-            result = path;
-            return true;
-        }
-
-        const int dx[4] = {-1, 0, 1, 0};
-        const int dy[4] = {0, 1, 0, -1};
-
-        for (int i = 0; i < 4; i++) {
-            int nx = x + dx[i];
-            int ny = y + dy[i];
-            int nkey = coordToKey(nx, ny);
-
-            if (isPassable(nx, ny) && !visitedCells.contains(nkey)) {
-                if (dfsHelper({nx, ny}, end, path, result)) {
-                    return true;
-                }
-            }
-        }
-
-        path.pop_back();
-        return false;
-    }
-
-public:
     void printMazeWithPath(const std::vector<std::pair<int, int>>& path = {}) {
         Avl_Tree pathCells;
         for (const auto& p : path) {
             pathCells.insert(coordToKey(p.first, p.second));
         }
 
-        std::cout << "\nMaze (" << rows << "x" << cols << "):\n";
-        std::cout << "   ";
+        std::cout << "\nMaze (" << rows << "x" << cols << "):\n   ";
         for (int j = 0; j < cols; j++) {
             std::cout << j << " ";
         }
@@ -463,11 +567,11 @@ public:
             for (int j = 0; j < cols; j++) {
                 int key = coordToKey(i, j);
                 if (!path.empty() && pathCells.contains(key)) {
-                    std::cout << "* "; // Путь
+                    std::cout << "* ";
                 } else if (grid[i][j] == 1) {
-                    std::cout << "# "; // Стена
+                    std::cout << "# ";
                 } else {
-                    std::cout << ". "; // Проход
+                    std::cout << ". ";
                 }
             }
             std::cout << std::endl;
@@ -475,8 +579,7 @@ public:
     }
 
     void printMaze() {
-        std::cout << "\nOriginal Maze (" << rows << "x" << cols << "):\n";
-        std::cout << "   ";
+        std::cout << "\nMaze (" << rows << "x" << cols << "):\n   ";
         for (int j = 0; j < cols; j++) {
             std::cout << j << " ";
         }
@@ -495,29 +598,21 @@ public:
         }
     }
 
-    void printPath(const std::vector<std::pair<int, int>>& path) {
-        if (path.empty()) {
-            std::cout << "Path is empty!" << std::endl;
-            return;
-        }
-
-        std::cout << "Path coordinates: ";
-        for (size_t i = 0; i < path.size(); i++) {
-            std::cout << "(" << path[i].first << "," << path[i].second << ")";
-            if (i < path.size() - 1) {
-                std::cout << " -> ";
-            }
-        }
-        std::cout << std::endl;
-    }
-
     void printStats() const {
         std::cout << "Maze size: " << rows << "x" << cols << std::endl;
         std::cout << "Visited cells: " << visitedCells.size() << std::endl;
         std::cout << "Total cells: " << rows * cols << std::endl;
-        std::cout << "Efficiency: " << std::fixed << std::setprecision(1)
-                  << (static_cast<double>(visitedCells.size()) / (rows * cols)) * 100
-                  << "% cells visited" << std::endl;
+
+        // Подсчет тупиков
+        int deadEnds = 0;
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                if (isDeadEnd(i, j)) {
+                    deadEnds++;
+                }
+            }
+        }
+        std::cout << "Dead ends: " << deadEnds << std::endl;
     }
 
     void clear() {
@@ -529,58 +624,54 @@ public:
 
 // Демонстрация работы
 int main() {
-    // Создаем лабиринт (0 - проход, 1 - стена)
+    // Создаем лабиринт с тупиками
     std::vector<std::vector<int>> mazeGrid = {
-        {0, 1, 0, 0, 0},
-        {0, 1, 0, 1, 0},
-        {0, 0, 0, 1, 0},
-        {0, 1, 1, 1, 0},
-        {0, 0, 0, 0, 0}
+        {0, 1, 0, 0, 0, 0, 1, 0},
+        {0, 1, 0, 1, 1, 0, 1, 0},
+        {0, 0, 0, 0, 0, 0, 1, 0},
+        {0, 1, 1, 1, 1, 1, 1, 0},
+        {0, 0, 0, 0, 0, 0, 0, 0},
+        {0, 1, 0, 1, 1, 1, 1, 0},
+        {0, 1, 0, 0, 0, 0, 0, 0}
     };
 
     Maze maze(mazeGrid);
 
-    std::cout << "=== Maze Solver with AVL Tree ===" << std::endl;
+    std::cout << "=== MAZE SOLVER WITH BRAIDING ALGORITHM ===" << std::endl;
+
+    // Показываем оригинальный лабиринт
+    std::cout << "\n--- ORIGINAL MAZE ---" << std::endl;
     maze.printMaze();
+    maze.printStats();
 
     std::pair<int, int> start = {0, 0};
-    std::pair<int, int> end = {4, 4};
+    std::pair<int, int> end = {6, 7};
 
-    std::cout << "\nStart: (" << start.first << "," << start.second << ")";
-    std::cout << " -> End: (" << end.first << "," << end.second << ")" << std::endl;
+    // Поиск пути до брайдинга
+    std::cout << "\n--- PATH FINDING (BEFORE BRAIDING) ---" << std::endl;
+    auto pathBefore = maze.findPathWave(start, end);
+    maze.printMazeWithPath(pathBefore);
 
-    std::cout << "\n--- BFS Path Search ---" << std::endl;
-    auto pathBFS = maze.findPathBFS(start, end);
-    maze.printPath(pathBFS);
-    maze.printMazeWithPath(pathBFS);
+    // Применяем Braiding Algorithm
+    maze.braidMaze(0.7); // Braid 70% тупиков
+
+    // Показываем лабиринт после брайдинга
+    std::cout << "\n--- MAZE AFTER BRAIDING ---" << std::endl;
+    maze.printMaze();
     maze.printStats();
 
-    std::cout << "\n--- DFS Path Search ---" << std::endl;
-    auto pathDFS = maze.findPathDFS(start, end);
-    maze.printPath(pathDFS);
-    maze.printMazeWithPath(pathDFS);
-    maze.printStats();
+    // Поиск пути после брайдинга
+    std::cout << "\n--- PATH FINDING (AFTER BRAIDING) ---" << std::endl;
+    auto pathAfter = maze.findPathWave(start, end);
+    maze.printMazeWithPath(pathAfter);
 
-    // Тестирование другого маршрута
-    std::cout << "\n" << std::string(50, '=') << std::endl;
-    std::cout << "TESTING DIFFERENT ROUTE: (0,0) -> (2,2)" << std::endl;
-    std::cout << std::string(50, '=') << std::endl;
+    // Сравнение BFS до и после
+    std::cout << "\n--- BFS COMPARISON ---" << std::endl;
+    std::cout << "BFS before braiding:" << std::endl;
+    auto bfsBefore = maze.findPathBFS(start, end);
 
-    std::pair<int, int> start2 = {0, 0};
-    std::pair<int, int> end2 = {2, 2};
-
-    std::cout << "Start: (" << start2.first << "," << start2.second << ")";
-    std::cout << " -> End: (" << end2.first << "," << end2.second << ")" << std::endl;
-
-    std::cout << "\n--- BFS Path Search ---" << std::endl;
-    auto pathBFS2 = maze.findPathBFS(start2, end2);
-    maze.printPath(pathBFS2);
-    maze.printMazeWithPath(pathBFS2);
-
-    std::cout << "\n--- DFS Path Search ---" << std::endl;
-    auto pathDFS2 = maze.findPathDFS(start2, end2);
-    maze.printPath(pathDFS2);
-    maze.printMazeWithPath(pathDFS2);
+    std::cout << "BFS after braiding:" << std::endl;
+    auto bfsAfter = maze.findPathBFS(start, end);
 
     return 0;
 }
